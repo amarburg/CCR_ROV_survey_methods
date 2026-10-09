@@ -17,60 +17,19 @@ else:
     sys.path.insert(0, '/lib')
 
 from uart_wrapper import UARTWrapper
+from pwm_reader import PWMReader
+
 from ina238 import INA238
 from pydspl_seasense.sealite import Sealite
 
 
-class PWMReader:
-    """Reads PWM pulse width using pin edge interrupts.
+from config import Config
 
-    Designed for measuring ArduSub servo output signals (~50 Hz, 1100-1900 us).
-    Tracks last edge time for signal-loss detection. Pulses outside
-    [valid_min_us, valid_max_us] are dropped as EMI glitches; the prior
-    good measurement is retained.
-    """
-
-    def __init__(self, pin_num, valid_min_us=900, valid_max_us=2100):
-        self._valid_min_us = valid_min_us
-        self._valid_max_us = valid_max_us
-        self._rise_us = 0
-        self._pulse_width_us = 0
-        self._last_edge_us = 0
-
-        self._pin = Pin(pin_num, Pin.IN, Pin.PULL_DOWN)
-        self._pin.irq(trigger=Pin.IRQ_RISING | Pin.IRQ_FALLING,
-                       handler=self._irq_handler)
-
-    def _irq_handler(self, pin):
-        now = time.ticks_us()
-        self._last_edge_us = now
-        if pin.value():
-            # Rising edge
-            self._rise_us = now
-        else:
-            # Falling edge - measure pulse width
-            if self._rise_us:
-                width = time.ticks_diff(now, self._rise_us)
-                # Reject EMI glitches outside the valid PWM range.
-                if self._valid_min_us <= width <= self._valid_max_us:
-                    self._pulse_width_us = width
-
-    @property
-    def pulse_width_us(self):
-        """Pulse width (high time) in microseconds."""
-        return self._pulse_width_us
-
-    @property
-    def signal_age_ms(self):
-        """Milliseconds since last edge. Returns -1 if no edge received yet."""
-        if self._last_edge_us == 0:
-            return -1
-        return time.ticks_diff(time.ticks_us(), self._last_edge_us) // 1000
-
-    def deinit(self):
-        """Disable the interrupt."""
-        self._pin.irq(handler=None)
-
+try:
+    print("Loading local config from local_config.py")
+    import local_config
+except ImportError:
+    pass
 
 class LightingController:
     """
@@ -81,54 +40,6 @@ class LightingController:
     Light brightness is controlled by a PWM input from the BlueROV.
     """
 
-    # The RX/TX silkscreen on the QtPy corresponds to UART1
-    # Use the default TX and RX pins for the UART
-    RS485_UART = 1
-
-    # PWM input on the "A0" pin, which is connected to RP2004 pin 38
-    # Also PWM6B
-    PWM_INPUT_PIN = Pin.cpu.GPIO29
-
-    # ArduSub servo PWM range (microseconds)
-    PWM_MIN_US = 1100
-    PWM_MAX_US = 1900
-
-    # Accept-range for raw pulse samples. Pulses outside this are treated
-    # as EMI glitches and dropped by the PWM reader's ISR.
-    PWM_VALID_MIN_US = 900
-    PWM_VALID_MAX_US = 2100
-
-    # Median filter window over raw samples, to reject single-sample
-    # outliers that pass the ISR range gate.
-    MEDIAN_WINDOW = 9
-
-    # Signal loss timeout - lights off if no PWM edges for this long
-    SIGNAL_TIMEOUT_MS = 1000
-
-    # Minimum brightness change (%) before updating lights (deadband)
-    LEVEL_DEADBAND = 5
-
-    # Control loop interval
-    LOOP_INTERVAL_MS = 50
-
-    # Status print interval
-    STATUS_INTERVAL_MS = 2000
-
-    # I2C for INA238
-    I2C_ID = 1
-    I2C_SDA_PIN = 14  # GP14
-    I2C_SCL_PIN = 15  # GP15
-
-    # INA238 configuration
-    INA238_ADDRESS = 0x40
-    SHUNT_RESISTANCE = 0.1  # Ohms
-    MAX_CURRENT = 10.0      # Amps
-
-    # Serial configuration
-    BAUDRATE = 9600
-
-    # Light addresses on the shared bus
-    LIGHT_ADDRESSES = [1, 2, 3, 4]
 
     def __init__(self):
         """Initialize the lighting controller."""
@@ -146,27 +57,28 @@ class LightingController:
     def _init_uart(self):
         """Initialize shared UART0 connection."""
         self._uart = UARTWrapper(
-            uart_id=self.RS485_UART,
-            baudrate=self.BAUDRATE,
-            timeout=2000
+            uart_id=Config.RS485_UART,
+            baudrate=Config.BAUDRATE,
+            tx_control_pin=Config.RS485_RTS_PIN,
+            timeout=Config.UART_TIMEOUT_MS
         )
 
-        print(f"UART{self.RS485_UART} initialized on default pins")
+        print(f"UART{Config.RS485_UART} initialized on default pins")
 
 
     def _init_lights(self):
         """Initialize SeaLite objects for each light."""
-        for addr in self.LIGHT_ADDRESSES:
-            light = Sealite(address=addr, max_level=100, expect_response=False)
+        for addr in Config.LIGHT_ADDRESSES:
+            light = Sealite(address=addr, max_level=100, expect_response=True)
             self._lights.append(light)
-        print(f"Initialized {len(self._lights)} SeaLite lights (addresses {self.LIGHT_ADDRESSES})")
+        print(f"Initialized {len(self._lights)} SeaLite lights (addresses {Config.LIGHT_ADDRESSES})")
 
     def _init_power_monitor(self):
         """Initialize I2C and INA238 power monitor."""
         i2c = I2C(
-            self.I2C_ID,
-            sda=Pin(self.I2C_SDA_PIN),
-            scl=Pin(self.I2C_SCL_PIN),
+            Config.I2C_ID,
+            sda=Pin(Config.I2C_SDA_PIN),
+            scl=Pin(Config.I2C_SCL_PIN),
             freq=400000
         )
 
@@ -176,9 +88,9 @@ class LightingController:
         try:
             self._power_monitor = INA238(
                 i2c,
-                address=self.INA238_ADDRESS,
-                shunt_ohms=self.SHUNT_RESISTANCE,
-                max_current=self.MAX_CURRENT
+                address=Config.INA238_ADDRESS,
+                shunt_ohms=Config.SHUNT_RESISTANCE,
+                max_current=Config.MAX_CURRENT
             )
             print("INA238 power monitor initialized")
         except RuntimeError as e:
@@ -188,24 +100,31 @@ class LightingController:
     def _init_pwm_reader(self):
         """Initialize PWM input reader."""
         self._pwm_reader = PWMReader(
-            self.PWM_INPUT_PIN,
-            valid_min_us=self.PWM_VALID_MIN_US,
-            valid_max_us=self.PWM_VALID_MAX_US,
+            Config.PWM_INPUT_PIN,
+            valid_min_us=Config.PWM_VALID_MIN_US,
+            valid_max_us=Config.PWM_VALID_MAX_US,
         )
-        print(f"PWM input initialized: GP{self.PWM_INPUT_PIN}")
-        print(f"  PWM range: {self.PWM_MIN_US}-{self.PWM_MAX_US} us -> 0-100% brightness")
-        print(f"  Accept range: {self.PWM_VALID_MIN_US}-{self.PWM_VALID_MAX_US} us, median window: {self.MEDIAN_WINDOW}")
+        print(f"PWM input initialized: GP{Config.PWM_INPUT_PIN}")
+        print(f"  PWM range: {Config.PWM_MIN_US}-{Config.PWM_MAX_US} us -> 0-100% brightness")
+        print(f"  Accept range: {Config.PWM_VALID_MIN_US}-{Config.PWM_VALID_MAX_US} us, median window: {Config.MEDIAN_WINDOW}")
 
     def pwm_to_level(self, pulse_width_us):
         """Map PWM pulse width (us) to light level (0-100)."""
-        if pulse_width_us <= self.PWM_MIN_US:
+        if pulse_width_us <= Config.PWM_MIN_US:
             return 0
-        if pulse_width_us >= self.PWM_MAX_US:
+        if pulse_width_us >= Config.PWM_MAX_US:
             return 100
-        return int((pulse_width_us - self.PWM_MIN_US) * 100
-                    / (self.PWM_MAX_US - self.PWM_MIN_US))
+        return int((pulse_width_us - Config.PWM_MIN_US) * 100
+                    / (Config.PWM_MAX_US - Config.PWM_MIN_US))
 
-    def set_light_level(self, light_index, level):
+
+    def light_at(self,i):
+        if light_index < 0 or light_index >= len(self._lights):
+            return None
+
+        return lights[i]
+
+    def set_light_level(self, light, level):
         """
         Set brightness level for a specific light.
 
@@ -216,51 +135,73 @@ class LightingController:
         Returns:
             True on success, False on failure
         """
-        if light_index < 0 or light_index >= len(self._lights):
-            print(f"Invalid light index: {light_index}")
-            return False
+        if isinstance(light, int):
+            light = self.light_at(light)
+
+        level = 0
 
         try:
-            return self._lights[light_index].set_level(self._uart, level)
+            return light.set_level(self._uart, level)
         except Exception as e:
-            print(f"Error setting light {light_index}: {e}")
+            print(f"Error setting light {light._address}: {e}")
             return False
 
     def set_all_lights(self, level):
         """Set brightness level for all lights."""
         success = 0
-        for i in range(len(self._lights)):
-            if self.set_light_level(i, level):
+
+        print('DBG: LOUT       {level}')
+
+        for light in self._lights:
+            if self.set_light_level(light, level):
                 success += 1
 
             # Arbitrary pause to let each light respond
             # This could either be tuned to better match the
             # actual time to respond, or the code to catch
             # replies from the lights could be made more robust.
-            time.sleep_us(50000)
+            #time.sleep_us(50000)
+            #
+            # This is only necessary if we _aren't_ waiting for the 
+            # light's response
         return success
 
-    def get_light_level(self, light_index):
+    def get_light_level(self, light):
         """Read current brightness level from a light."""
-        if light_index < 0 or light_index >= len(self._lights):
-            return None
+
+        if isinstance(light, int):
+            light = self.light_at(light)
 
         try:
-            return self._lights[light_index].read_level(self._uart)
+            return light.read_level(self._uart)
         except Exception as e:
             print(f"Error reading light {light_index}: {e}")
             return None
 
-    def get_light_temperature(self, light_index):
-        """Read temperature from a light."""
-        if light_index < 0 or light_index >= len(self._lights):
-            return None
+    def dump_all_lights_info(self):
+        for light in self._lights:
+            try:
+                self.print_from_light(light,f'Info:     {light.read_info(self._uart)}')
+            except Exception as e:
+                print(f'Exception getting info from light {light._address}: {e}')
+                pass
 
-        try:
-            return self._lights[light_index].read_temperature(self._uart)
-        except Exception as e:
-            print(f"Error reading temp from light {light_index}: {e}")
-            return None
+    def dump_all_lights_stat(self):
+        for light in self._lights:
+            try:
+                result = light.read_stat(self._uart)
+                for r in result:
+                    self.print_from_light(light,f'Stat:     {r}')    
+                
+                self.print_from_light(light,f'Level:    {light.read_level(self._uart)}')
+                self.print_from_light(light,f'Temp:     {light.read_temperature(self._uart)}')
+                self.print_from_light(light,f'Humidity: {light.read_humidity(self._uart)}')
+            except Exception as e:
+                print(f'Exception getting status from light {light._address}: {e}')
+                pass
+
+    def print_from_light(self,light,str):
+        print(f'{light._address:-3}: {str}')
 
     def read_power(self):
         """Read power consumption from INA238."""
@@ -292,12 +233,19 @@ class LightingController:
 
         Runs until KeyboardInterrupt (Ctrl-C). Turns lights off on exit.
         """
-        print("PWM control loop running (Ctrl-C to stop)")
 
         last_status_ms = time.ticks_ms()
         pw_samples = []
 
         try:
+            print("Info from all lights:")
+            print("=====================")
+            self.dump_all_lights_info()
+            print()
+
+            print("PWM control loop running (Ctrl-C to stop)")
+
+
             while True:
                 signal_age = self._pwm_reader.signal_age_ms
                 signal_lost = (signal_age < 0 or
@@ -309,26 +257,29 @@ class LightingController:
                     target_level = 0
                 else:
                     pw_samples.append(self._pwm_reader.pulse_width_us)
-                    if len(pw_samples) > self.MEDIAN_WINDOW:
+                    if len(pw_samples) > Config.MEDIAN_WINDOW:
                         pw_samples.pop(0)
                     pw_filtered = sorted(pw_samples)[len(pw_samples) // 2]
                     target_level = self.pwm_to_level(pw_filtered)
 
                 # Only update lights if level changed beyond deadband
-                if abs(target_level - self._current_level) >= self.LEVEL_DEADBAND:
+                if abs(target_level - self._current_level) >= Config.LEVEL_DEADBAND:
                     self.set_all_lights(target_level)
                     self._current_level = target_level
 
                 # Periodic status output
                 now_ms = time.ticks_ms()
-                if time.ticks_diff(now_ms, last_status_ms) >= self.STATUS_INTERVAL_MS:
+                if time.ticks_diff(now_ms, last_status_ms) >= Config.STATUS_INTERVAL_MS:
+
+                    self.dump_all_lights_stat()
+
                     if signal_lost:
                         print(f"PWM: NO SIGNAL | Level: {self._current_level}%")
                     else:
                         print(f"PWM: {pw_filtered} us | Level: {self._current_level}%")
                     last_status_ms = now_ms
 
-                time.sleep_ms(self.LOOP_INTERVAL_MS)
+                time.sleep_ms(Config.LOOP_INTERVAL_MS)
 
         except KeyboardInterrupt:
             print("\nStopping...")
