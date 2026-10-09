@@ -201,7 +201,7 @@ class LightingController:
                 pass
 
     def print_from_light(self,light,str):
-        print(f'{light._address:-3}: {str}')
+        print(f'{time.time_ns():10} {light._address:-3}: {str}')
 
     def read_power(self):
         """Read power consumption from INA238."""
