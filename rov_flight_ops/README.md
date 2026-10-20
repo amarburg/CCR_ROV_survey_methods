@@ -157,47 +157,116 @@ From a terminal: `python -m rov_flight_ops` (in the environment above).
   handle to jump between one line and a comfortable height. They never shrink
   below one line, and the progress bar and status line are never inside the
   part that shrinks.
+* **Sections that sit side by side are divided by draggable handles.** On
+  Navigation: the map against the right-hand column, readiness against the
+  survey plan, and the plan's feature list against its inspector. On
+  Monitoring, Parameters, DVL and BlueOS logs: between the two columns.
+  Double-click a handle to put it back. Where each was left is kept in
+  `settings.json`, so a laptop opens laid out the way it was last used. No
+  section can be dragged narrower than its widest row of buttons, so nothing
+  is cut off; the map stops at its own tool bar. Stacked sections have no
+  divider — a scrolling tab's sections are as tall as their content, and the
+  report boxes inside them have their own handles.
 * **Small sections sit side by side** where they are short enough to.
 * **The recorder's state is on every tab**, at the right of the tab row:
   *Watching 192.168.2.2 for arming*, *● Recording … · rows · host*, or a warning
   in words if recording has failed — so a failure is not waiting to be noticed
   on the Monitoring tab while someone is downloading logs.
+* **The ROV flight simulator** is the switch left of *Diagnostics*, open or
+  folded. See [below](#the-rov-flight-simulator).
+
+### The ROV flight simulator
+
+Turns the whole program into a simulated flight, for learning it without a
+vehicle and for seeing what failures look like before they happen. It **only
+starts with no vehicle connected** — it asks the vehicle's address first — and
+**switches itself off if one answers** while it runs. Engaged, the switch is lit
+in purple; everything else, lamps included, looks as it would on a real flight.
+
+* **Monitoring**: a flight recording, ten minutes already charted, every Live
+  monitoring reading simulated from L342-D's own logs (readings L342-D cannot
+  publish are simulated too, and marked *◇ simulated*), and the go / no-go
+  board judging the simulated vehicle.
+* **Parameters**: the simulated vehicle is Nereo's reference file with four
+  parameters changed on purpose — two key ones, two others — and the ones the
+  autopilot rewrites by itself, so both lists have something in them. *Set to
+  reference* is refused: the simulator sends nothing anywhere.
+* **Navigation**: the vehicle flying four lanes in the slip between Piers 59
+  and 60, read through the program's own collector, guidance following the
+  lane it is on, the UGPS receiver row live.
+* **DVL**: a simulated A50, calibrated from the 15 October 2026 dive, read
+  through the program's own capture as a live view.
+* **Transects** has the lanes flown as transects and draws their dive
+  profile; **BlueOS logs** lists a simulated Pi (downloads are described, not
+  made; deleting is refused because the simulated ROV is armed).
+* **Flight summary** and **Analyze transects** read recordings already on disk
+  and are not simulated; each says so.
+
+**Faults.** Every 45 s: 30 s with one thing wrong on each live tab — and one
+reading in every Monitoring group — then 15 s all green, then the next. The
+banner counts down; **Show what's wrong** names the fault for the tab (and
+group) on screen and writes what it is, how it shows and what to do about it
+to the log. Forty-seven faults in all, from a thermally throttled laptop to a
+dead DVL beam, a wet leak sensor and the Pi Ethernet outages of 15 October 2026:
+[specifications/simulator.md](specifications/simulator.md).
+
+**Nothing is written anywhere real.** While it runs, the flight folder is the
+simulator's own (`%LOCALAPPDATA%\CCR_ROV\rov_flight_ops\simulator\flights\…`,
+emptied each time it starts) and *Browse…* is refused; nothing reaches a
+vehicle. Switching it off puts back the flight folder, the recorder (which kept
+watching underneath), the transects, the survey plan and the banner's versions.
 
 ---
 
 ## 1  Monitoring
 
-Where the operator sits *before* a flight — the flight folder, the path to the
-vehicle, and the laptop and tether while they work. During the flight itself,
-see [2 Navigation](#2--navigation).
+Where the operator sits *before* a flight — what is connected, the flight
+folder, the path to the vehicle, and the laptop and tether while they work.
+During the flight itself, see [3 Navigation](#3--navigation).
 
-### 1. Flight folder
+### 1. System at a glance
 
-Choose it **first** — before the dive, even before the ROV is connected. The
-flight recorder, the network checks, the transect plan, and every download from
-the Pi are filed inside it. Choosing it also starts watching for the ROV to arm
-(one small read every two seconds; nothing is recorded until it arms).
+Every part that has to work, one line each in two columns, judged from what
+the program already reads: the vehicle link, the Navigator, the depth sensor,
+the EKF, the DVL, the topside GNSS compass, the UGPS G2 box, its four antenna
+receivers (a mark for each), the U1 locator, the leak sensors, the tether, the topside
+laptop and the recording. ● working, ▲ check (working, not as it should),
+✖ not working, ○ not heard from yet. One line above them says the worst of
+them and names it, beside the busbar's volts, amps and watts — all in the
+tab's ordinary type: Live monitoring is what this tab is for, so this stays a
+few lines tall.
 
-### 2. The path to the vehicle  ·  3. Recording this flight
+The board starts the readers it judges — the Navigation tab's collector, the
+DVL view and the G2 reader — the first time it is on screen. Each is read-only
+and would start anyway when its own tab was opened. A wet leak sensor is read
+from ArduSub's own *Leak Detected* text.
 
-Side by side.
+### 2. Flight
 
-**The path to the vehicle** holds the **vehicle address** — the one place it is
+Three lines, one per thing done here; **every message goes to the log at the
+foot of the window**, so the tab has no report boxes of its own.
+
+**Folder** — choose it **first**, before the dive, even before the ROV is
+connected. The flight recorder, the network checks, the transect plan, and
+every download from the Pi are filed inside it. Choosing it also starts
+watching for the ROV to arm (one small read every two seconds; nothing is
+recorded until it arms), and the log says what is already in it.
+
+**Vehicle** holds the **vehicle address** — the one place it is
 typed. Blank means the tether address, `192.168.2.2`. It is **committed** when
 you press Enter or leave the box (and before any button reads it), and then
 applies everywhere at once: the recorder's watcher, the BlueOS logs tab and the
 preview. A listing from the old address is cleared. If a flight is being
 recorded when the address changes, that flight keeps its vehicle and the new
 address applies as soon as it closes. *Check the network*, *Measure the link*
-and *Save to flight folder* are the pre-dive topside checks.
+and *Save* are the pre-dive topside checks; their reports go to the log.
 
-**Recording this flight** starts itself when the ROV arms and closes when it has
-been disarmed for 90 seconds, so a surface interval does not split one dive into
-several files. *Record now* starts one by hand (a bench test, or a vehicle whose
-arm state cannot be read). Everything lands in the flight folder's `logs/`.
-Under the buttons it shows the **vehicle it is watching**, the **file it is
-writing**, **how long ago a row last reached the disk**, and the **row rate
-actually achieved**. Specifically:
+**Recording** starts itself when the ROV arms and closes when it has been
+disarmed for 90 seconds, so a surface interval does not split one dive into
+several files. *Record now* starts one by hand (a bench test, or a vehicle
+whose arm state cannot be read). Everything lands in the flight folder's
+`logs/`. Beside the buttons, one line: rows written, minutes, and how long ago
+rows last reached the disk — or *NOT WRITING*. Specifically:
 
 * **Flight IDs are to the second** (`2026-09-16_104512`), with a suffix if one
   would ever repeat, and every flight file is created exclusively — a second
@@ -225,12 +294,14 @@ actually achieved**. Specifically:
   flight still records normally — it has its own workers and files — but
   restart the program when convenient.
 
-### 4. Live monitoring
+### 3. Live monitoring
 
-One group of readings at a time, each on its own scale, drawn while a flight
-records. Under each reading's name is its unit and the **rate it is meant to be
-refreshed at** — a target: the rate actually achieved for the row is measured
-and shown in section 3. The row is written once a second, but some readings are
+One group of readings at a time, each in its own box on its own scale, drawn
+while a flight records. Every strip has its unit beside the axis on the right
+— counts too (*packets*, *processes*, *requests*…), bytes in KiB/MiB/GiB,
+uptime in minutes or hours, and *state* for the true/false ones. Under each
+reading's name is the **rate it is meant to be refreshed at** — a target: the
+rate actually achieved for the row is measured and shown in section 3. The row is written once a second, but some readings are
 taken on a slower cadence and held between reads — a strip that steps every five
 seconds is doing exactly what it should. A vehicle-side tether reading that has
 not been refreshed for three of its polls is shown as unknown rather than held
@@ -247,14 +318,67 @@ forward:
 **Faster than 1 Hz:** while a flight records, the tether is also traced at
 **10 Hz** (adapter counters, `logs/network_fast_*.csv`) and **5 Hz** (pings with
 their status codes, `logs/network_pings_*.csv`). Those are written for reading
-afterwards — the Network and Tether groups say so — and are not drawn live.
+afterwards and are not drawn live.
 
 The chart windows are 2, 10 and 30 minutes; the history kept for drawing now
 covers the full 30.
 
+**Each reading is coloured by how it compares with a healthy flight:**
+● green *normal*, ▲ amber *unusual*, ✖ red *bad*. The line takes the colour
+sample by sample, a stripe down the strip's left edge and the word under the
+current value say where it is now, and dashed lines mark the thresholds when
+the data comes near them. The thresholds are printed under each reading's
+name; point at the name for the reason. *Normal* was measured from the 27
+laptop-monitor logs of September–October 2026; *unusual* and *bad* come from
+the hardware's documented limits. Every band, how it is judged and how often
+real flights were normal: [specifications/monitoring_bands.md](specifications/monitoring_bands.md).
+
+The strips are drawn at the display's scale, with a value axis on each and one
+time axis along the foot. (They used to be drawn unscaled, which on a 250 %
+screen made them two-fifths of their size and the axis text unreadable.)
+
 ---
 
-## 2  Navigation
+## 2  Parameters
+
+The vehicle's ArduSub parameters against its reference file,
+[`vehicle_parameters/nereo.params`](vehicle_parameters/README.md). The values
+are the ones the Navigation collector reads from the head of the autopilot's
+dataflash log, so filling the tab sends the vehicle nothing.
+
+1. **Key parameters**, in groups — the EKF's sources, the DVL, GPS (the UGPS),
+   the origin, depth and Surftrak, failsafes, lights (each light channel,
+   wherever it is wired, and its step per press: (MAX − MIN) / JS_LIGHTS_STEPS)
+   and pilot gain (with its step per press, as ArduSub works it out) — each with
+   the vehicle's value, the file's, and whether they agree. Enumerations read as
+   words (*3 EKF3*, *6 ExternalNav*). A few values are flagged whatever the file
+   says: a fresh-water `BARO_SPEC_GRAV` (Puget Sound reads about 2.4 % deep on
+   it), the leak failsafe off, logging while disarmed. The verdict at the top
+   counts what differs.
+2. **Other differences** — everything else that is not as the file has it;
+   empty when the rest matches. Parameters on one side only are listed apart.
+   Not compared at all, because the autopilot or Cockpit rewrites them by
+   itself flight after flight: `STAT_*`, `BARO*_GND_PRESS`, `COMPASS_DEC` and
+   the GCS stream rates `SR0_*` — the only ones that moved on their own across
+   the 24 flights of 14 September – 15 October 2026. The origin (`ORIGIN_*`,
+   `AHRS_ORIG_*`) is shown but belongs to the site, so it is never offered for
+   setting from the file.
+3. **Navigation profile** — the profile check that used to be in the
+   Navigation details drawer: each requirement, what the vehicle has, what the
+   profile wants and why.
+4. **Origin** and 5. **Message health**, likewise moved here from the drawer.
+
+**Set to reference** — per row, or all of a section at once — writes the
+file's value with a PARAM_SET and reads it back, and **only with the ROV
+disarmed**: the arming state is checked before the confirmation and again
+before every write, and writing stops if it arms. A confirmed value is shown
+at once (the dataflash log only catches up on the next flight). *Save the
+vehicle's* writes the parameters as they are now into the flight folder's
+`logs/`, in the reference file's own format, so the two can be diffed.
+
+---
+
+## 3  Navigation
 
 Where the survey is planned and flown: a live map, the plan drawn on it, and
 the navigation diagnostics. This is the page the operator sits in front of for
@@ -262,12 +386,30 @@ the whole dive — Cockpit is on the monitor above it and has the forward camera
 and on a survey flown 0.8 m off the bottom in low visibility the numbers here
 matter more to the pilot than the picture does.
 
-The flight and power gauges that used to be on this page are gone, and are not
-drawn anywhere else — live, in the water, Cockpit is on the monitor above with
-the same numbers, and the space mattered more. All of the telemetry behind them
-is still collected and still feeds navigation, the logs, replay, the flight
-summary and the exported CSVs; `gui/navgauges.py` keeps the widgets and their
-tests for whenever they want a home.
+On the map the **ROV is a large black arrow** and the **vessel a bright red
+one**, each labelled, with a **black track** for the ROV and a **red track**
+for the vessel — both on a white halo, so they read on the water and on the
+pier alike. (Outside the brand palette on purpose: they have to be found
+instantly.) What a stretch of the ROV's track rested on is in its pattern —
+see NAVIGATION.md.
+
+Under the map, one row of plain numbers big enough to read at a glance, in
+three groups: **altitude** above the bottom with Surftrak's setpoint under it
+(*no lock* when the DVL has lost the bottom), **depth**, **forward** speed
+along the heading and the pilot's **gain**; in the middle **TC-25**, the time
+the transects are written in; and **volts, amps, watts**. A stale value is
+drawn muted; a missing one is a dash, never a zero.
+
+**TC-25** is computed exactly as the GoPro Labs precision-time page computes
+it (https://gopro.github.io/labs/control/precisiontime/): that page does not
+fetch the time from the internet — it shows *this laptop's own clock*, local
+time, as `HH:MM:SS:FF` at 25 frames a second, and its QR code sets the GoPro
+to that clock. So the number here matches the page, offline or not. With the
+internet, the program also checks the laptop's clock against a time server
+every ten minutes and says under the time how far off it is (red past one
+second) — the TC-25 itself is never corrected, because the cameras were set
+from the uncorrected clock. Sync Windows' clock before syncing the cameras if
+it is far out. The old gauges stay in `gui/navgauges.py`, drawn by nothing.
 
 **Its own guide is [NAVIGATION.md](NAVIGATION.md)**, which covers the origin,
 the profiles, the map, the survey plan, waypoints, energy, every measurement's
@@ -296,11 +438,21 @@ source, the compatibility matrix and a bench checklist. In outline:
   The fourth column shows `?` rather than guessing, since ArduPilot publishes
   aiding mode rather than per-instance fusion;
 * **navigation profiles** (DVL dead reckoning, acoustic + DVL) with parameter
-  validation that explains *why* each requirement exists, and a deliberate
+  validation that explains *why* each requirement exists (in full on
+  [2 Parameters](#2--parameters), with message health and the origin), and a
+  deliberate
   review → apply → read-back path that is locked until the operator unlocks it
   and refused while the vehicle is armed;
 * **EKF origin** setup, which is what makes a DVL-only dive have coordinates at
-  all.
+  all;
+* a **UGPS receivers** row under the map: each of the G2 antenna's four
+  receivers' signal-to-noise and noise floor over the last minute, with a
+  sparkline, and a line saying whether any receiver stands out from the other
+  three (low SNR, noisy, or dropping out). It is read straight from the G2
+  topside, so it keeps working when the Pi drops off the tether. The same
+  reader logs every receiver into `logs/ugps/` from the moment a flight folder
+  is chosen; see [specifications/ugps_log_schema.md](specifications/ugps_log_schema.md).
+  The G2's address is `ugps_host` in the settings file (default 192.168.2.94).
 
 Everything it reads is read-only except the profile and origin writes above.
 It is the only part of the program that can write to a vehicle besides
@@ -308,7 +460,65 @@ It is the only part of the program that can write to a vehicle besides
 
 ---
 
-## 3  Transects
+## 4  DVL
+
+The Water Linked DVL A50, beam by beam — and **everything it sends, written
+to the flight folder from the moment one is chosen until the program
+closes**, armed or not, into `logs/dvl/`. Built to find out where DVL
+messages are being lost: the team sees gaps in the mcaps, Cockpit and QGC,
+but not on the DVL's own web page.
+
+**1. DVL** heads the tab with every figure in words, spread across the
+width: its address (click it for the DVL's own web page) and a lamp for each
+of its three streams, then delivery and stream health four to a line, most
+important first, and the capture's events. Under it, side by side and level
+with each other, **2. The four beams**, each drawn where it points, and
+**3. Echo and spectrum**, one above the other. **4. Live charts** take the
+full width beneath, then **5. Water Linked diagnostic log**.
+
+**Its own design documents are in [specifications/](specifications/README.md)**:
+what the DVL exposes and what it does not, every file and column, the
+guarantees and the tests that hold them, how to diagnose dropped messages
+against an mcap, and a bench checklist. In outline:
+
+* **What is captured.** The DVL's TCP JSON stream byte for byte (every
+  velocity-and-transducer report, every dead-reckoning report), the web
+  GUI's live stream (orientation at 10 Hz, and the three velocity fields the
+  TCP stream lacks — including whether periodic cycling is under way), the
+  DVL's temperature, warnings, configuration, clock, NTP state and connected
+  clients every two seconds, and its two acoustic views — **each beam's echo
+  strength against range, and each beam's spectral density** — as snapshots,
+  5 a second by default. From the vehicle: the BlueOS DVL extension's status,
+  and how many of its MAVLink messages mavlink2rest counted. Each row carries
+  the flight the recorder had open.
+* **As JSON and as CSV.** The raw stream is kept verbatim and indexed line
+  by line; every report is also a CSV row with every field the DVL sent —
+  anything this program does not know goes into an `extra_json` column
+  rather than being dropped.
+* **Where a gap came from.** Every report's own timestamps let a gap be put
+  on one side of the link: the DVL made nothing (*quiet*), the DVL made
+  reports that never arrived (*missing*), or they arrived late (*stall*).
+  Invalid reports — lost bottom lock — are counted separately, because the
+  stock BlueOS extension **drops every invalid report**, so from the mcap's
+  side an invalid stretch is a gap.
+* **Did it reach the autopilot?** what the DVL emitted, beside what
+  mavlink2rest counted arriving from the extension, and how many clients are
+  connected to the DVL (2 means the extension is; 1 means it is not).
+* **Read-only.** It asks the DVL four questions (`get_config`,
+  `get_version_info`, `get_time_status`, `get_time_ntp`) and issues GETs; a
+  test fails if anything else appears. The one exception is on request:
+  **Water Linked's diagnostic log**, which the DVL records for 15 s to 5 min
+  for their support team, collected only with the vehicle confirmed disarmed.
+* **The DVL's address** comes from the BlueOS DVL extension; *Address…*
+  overrides it. Opening the tab with no flight folder shows the DVL live and
+  writes nothing.
+
+`python -m rov_flight_ops.dvl.simulator --http 8080` runs a stand-in DVL for
+trying the tab without a vehicle: give `127.0.0.1:8080` as the address.
+
+---
+
+## 5  Transects
 
 Straight after the flight, with the vehicle on deck and disarmed.
 
@@ -376,7 +586,7 @@ with the vehicle's own time preserved.
 
 ---
 
-## 4  BlueOS logs
+## 6  BlueOS logs
 
 See what is on the Pi, download it into the flight folder, and clear old files
 off it.
@@ -544,7 +754,7 @@ module issues read-only GETs, and a test fails if a write appears anywhere else.
 
 ---
 
-## 5  Flight summary
+## 7  Flight summary
 
 **Read the day** builds the flight report (PDF) from everything in the flight's
 `logs`; **Recordings / What the check found / Autopilot logs / Transects** are
@@ -564,7 +774,7 @@ How a recording's ending is described is limited to what the logs show:
 * **unexplained** — anything else, including a recording the vehicle never
   closed, where an interrupted recorder and a disarm look alike.
 
-## 6  Analyze transects
+## 8  Analyze transects
 
 Unchanged from UTC for now: per-transect CSVs (with tide-corrected depth) and a
 map via the transect extractor, and a sensor-health report.
@@ -607,6 +817,19 @@ vehicle's SD card.
         flight_*.json            parameters, versions and what changed
         pi_downloads.jsonl       every download: source, size, time, SHA-256
         pi_cleanup_*.txt         what Clean the Pi approved, deleted and kept
+        dvl/
+            dvl_<id>_*           one DVL capture, from folder chosen to program
+                                 closed: the raw streams, a CSV per report type,
+                                 status, echo and spectrum snapshots, events,
+                                 and dvl_<id>.json (specifications/dvl_log_schema.md)
+            dvl_diagnostic_*     Water Linked diagnostic logs, if collected
+        ugps/
+            ugps_<id>_*          one UGPS capture: each receiver's distance,
+                                 signal, noise and validity, positions, status,
+                                 events, and ugps_<id>.json
+                                 (specifications/ugps_log_schema.md)
+            pi/<date>/           the WL UGPS External extension's own logs,
+                                 from BlueOS logs → UGPS logs
     photos/
         C3/                      C3 imagery from the Pi (left/, right/, center/, calibration)
 ```
@@ -617,8 +840,9 @@ Older flights with recordings loose in `logs/` are read exactly as before.
 
 ## Settings and cache
 
-* `%LOCALAPPDATA%\CCR_ROV\rov_flight_ops\settings.json` — the vehicle address
-  and the C3 folder, remembered between runs.
+* `%LOCALAPPDATA%\CCR_ROV\rov_flight_ops\settings.json` — the vehicle address,
+  the C3 folder, the DVL address (blank: ask the extension) and the DVL
+  snapshot rate, remembered between runs.
 * `%LOCALAPPDATA%\utc_cache\` — extracted telemetry, per flight. This location
   is shared with ROV Imagery Processing **on purpose**: it is data, not
   code, and sharing it means a `.BIN` telemetry override chosen on Flight summary
@@ -724,6 +948,10 @@ the tests; each wants one look at the real thing:
       large C3 listing with *List individual files*. Afterwards, open
       *Diagnostics* and check `app.log` has no stall reports or errors you did
       not expect, and read the achieved row rate on Monitoring.
+- [ ] **DVL** — its own checklist:
+      [specifications/dvl_bench_checklist.md](specifications/dvl_bench_checklist.md)
+      (connection, whether mavlink2rest sees the extension's messages, the
+      beam positions, the files, and four short experiments).
 
 ---
 
@@ -736,19 +964,25 @@ rov_flight_ops/
     launch.py                entry point for a packaged build
     pyproject.toml           package and dependencies
     assets/                  fonts, logos, icon
+    specifications/          design documents: the DVL capture's sources, schema,
+                             invariants, diagnosis guide, provenance, bench checklist
     rov_flight_ops/          the package
         gui/
-            app.py           the window and its six tabs
+            app.py           the window and its eight tabs
             shell.py         banner fold, tabs, resizable output (same file as imagery's copy)
             widgets.py       cards, resize grips, site/transect editors
-            monitorpage.py   Monitoring sections 2-4
+            monitorpage.py   Monitoring: recording, path to the vehicle, live charts
+            goboard.py       Monitoring: the go / no-go board (judged in board.py)
+            paramspage.py    Parameters tab (compared in paramcheck.py)
+            flightstrip.py   the numbers under the Navigation map, TC-25 among them
             navpage.py       Navigation tab: layout and wiring
             navmap.py        the chart canvas
             navdraw.py       drawing and editing a plan on the map
             navplanpanel.py  the plan's tools, feature list and inspector
-            navgauges.py     the altitude and power gauges -- built and tested, drawn by nothing since the Navigation restructure
+            navgauges.py     the altitude and power gauges -- built and tested, drawn by nothing (flightstrip.py has the numbers)
             navstatus.py     configured / receiving / valid / fused, testable without a screen
-            navdialogs.py    health, origin, offline maps, start, and review-and-apply
+            navdialogs.py    diagnosis, origin, offline maps, start, and review-and-apply
+            dvlpage.py       DVL tab: stream health, the beams, echo and spectrum, live charts
             transectsetup.py Transects tab
             logspage.py      BlueOS logs tab
             summarypage.py, healthpage.py   Flight summary
@@ -770,6 +1004,19 @@ rov_flight_ops/
             plan.py          survey-plan geometry: lines, boxes, grids, lanes
             guidance.py      following a line: cross-track and along-track
             replay.py        recorded and synthetic playback
+        dvl/                 the DVL capture, everything that is not a widget
+            protocol.py      the DVL's formats, byte-exact framing, the read-only commands, the beams
+            cadence.py       report intervals on two clocks, and where a gap came from
+            websocket.py     a small WebSocket client for the DVL's web stream
+            webapi.py        the DVL's address, and GETs on one kept-alive connection
+            capture.py       one capture: its threads, its files, its record
+            recorder.py      start, move and stop captures off the window's thread
+            live.py          what the DVL tab draws
+            diagnostic.py    Water Linked's diagnostic log, disarmed only
+            simulator.py     a stand-in DVL for the tests and the bench
+        board.py             go / no-go: each component judged, no Tk
+        paramcheck.py        the vehicle's parameters against its reference file
+        tc25.py              TC-25 as the GoPro Labs page shows it, and the clock check
         pifiles.py           Pi files: list, spans, choose, download, delete
         diagnostics.py       app.log, faults.log, stall watchdog (same file as imagery's copy)
         previewsource.py     where the transect preview's depth comes from

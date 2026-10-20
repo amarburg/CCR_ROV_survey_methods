@@ -23,8 +23,10 @@ Our goal is to create an **open-source reference** that allows other research gr
 | [`code/transect_tracks/`](code/transect_tracks/) | R code and transect CSVs for the ROV positioning-track figure | Fig. 2 |
 | [`surftrak_analysis/`](surftrak_analysis/) | Output of `code/surftrak_performance.py`: surftrak altitude error per transect, survey day and year, and its histogram | Table S1, Fig. S2 |
 | [`tlog_visualization/`](tlog_visualization/) | R code, data and figures for surftrak altitude holding and ROV power use | Figs. 3–4, S11, S13 |
-| [`lighting/`](lighting/) | Lighting-control subsystem for the V4 lights: Raspberry Pi Pico code, wiring, parts list and a lighting simulation | Fig. S8, Table S3 |
+| [`lighting/`](lighting/) | Lighting-control subsystem for the V4 lights: Raspberry Pi Pico code, wiring, parts list, a lighting simulation, and beam-angle notebooks (`beam_visualizers/`) | Fig. S8, Table S3 |
 | [`lua_scripts/`](lua_scripts/) | ArduSub Lua scripts: `surftrak2.lua`, `transect3.lua`, `message_interval.lua`, `ahrs-set-origin.lua` | Table S2 |
+| [`distance_calibration/`](distance_calibration/) | Distance sources checked against 100 m transect tapes: the passes, the script and per-pass results behind the meter-mark calibration factors | Positioning results; Supp. Section S4 |
+| [`survey_log/`](survey_log/) | Flight log of every ROV survey transect (2022–2026) and a script that reproduces the survey totals | Methods; Supp. Section S1 |
 | [`field_checklist/`](field_checklist/) | One-page printable field log (LaTeX source and PDF) | Fig. S1 |
 | [`sort_by_meter_mark/`](sort_by_meter_mark/) | Example output of `optimize_path.py` and meter-mark photo sorting for three transects | — |
 | [`images/`](images/) | Images used in this README | — |
@@ -118,7 +120,7 @@ Two open-source Windows desktop applications carry a survey day from pre-dive ch
 
 ### [ROV Flight Operations](rov_flight_ops/) (`rov_flight_ops/`)
 
-Runs on the topside laptop for the whole survey day, with tabs in the order the day uses them: automatic recording of laptop and tether health whenever the ROV is armed; a live navigation map with survey plans, line-following guidance and a navigation-sensor readiness check; transect times (and pauses) checked against the dive profile; verified download of BlueOS logs and imagery from the vehicle; an automated flight report that diagnoses disarms, tether dropouts and sensor faults; and per-transect telemetry CSVs and maps from the bundled transect extractor ([`mcap_to_csv/`](mcap_to_csv/)). See [`rov_flight_ops/README.md`](rov_flight_ops/README.md).
+Runs on the topside laptop for the whole survey day, with tabs in the order the day uses them: automatic recording of laptop and tether health whenever the ROV is armed; a live navigation map with survey plans, line-following guidance and a navigation-sensor readiness check; a byte-for-byte capture of everything the Water Linked DVL sends, beam by beam, with a check of whether it reaches the autopilot; transect times (and pauses) checked against the dive profile; verified download of BlueOS logs and imagery from the vehicle; an automated flight report that diagnoses disarms, tether dropouts and sensor faults; and per-transect telemetry CSVs and maps from the bundled transect extractor ([`mcap_to_csv/`](mcap_to_csv/)). See [`rov_flight_ops/README.md`](rov_flight_ops/README.md).
 
 <p align="center">
   <img src="images/rov_flight_ops.png" width="600" alt="ROV Flight Operations, Navigation tab" />

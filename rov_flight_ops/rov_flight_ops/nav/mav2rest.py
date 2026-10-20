@@ -72,6 +72,10 @@ _UA = "rov_flight_ops Navigation (Seattle Aquarium CCR)"
 #: with something enormous cannot be read into the window's memory.
 _LIMIT = 200_000
 
+#: `Sample.error` for a message mavlink2rest has never received. A fact about
+#: the vehicle, not a network error; callers compare against this.
+NEVER_SENT = "never sent by this vehicle"
+
 
 class VehicleWriteRefused(RuntimeError):
     """Raised when something tries to send to a vehicle that must not be sent to.
@@ -164,6 +168,9 @@ class Sample:
     wall: float = 0.0
     reset: bool = False
     error: str = ""
+    #: The HTTP status of the read, or None when nothing answered at all (a
+    #: timeout, a refused connection). Only None says the service is down.
+    http_status: int | None = None
 
     def get(self, *path, default=None):
         """A field out of the message body, tolerating the enum wrapper.
@@ -223,6 +230,13 @@ class Mavlink2Rest:
         return (f"{self.base}/v1/mavlink/vehicles/{self.system}"
                 f"/components/{self.component}/messages/{name}")
 
+    def _fetch(self, url: str, timeout: float | None = None) -> Answer:
+        """One GET against the vehicle. Every read in this class goes through
+        here, so the ROV flight simulator can answer in the vehicle's place and
+        everything above -- freshness, counters, health -- is the code a real
+        vehicle gets."""
+        return _get(url, timeout=self.timeout if timeout is None else timeout)
+
     # -- reading ---------------------------------------------------------
 
     def read(self, name: str) -> Sample:
@@ -234,19 +248,22 @@ class Mavlink2Rest:
         """
         now_mono, now_wall = time.monotonic(), time.time()
         h = self.health.setdefault(name, MessageHealth(name=name))
-        a = _get(self.message_url(name), timeout=self.timeout)
+        a = self._fetch(self.message_url(name))
         h.last_read_mono = now_mono
 
-        if not a.ok:
-            # A 404 from mavlink2rest means this vehicle has never sent this
-            # message. That is a fact about the vehicle, not a network error,
-            # and the difference matters to the health panel.
-            h.error = ("never sent by this vehicle" if a.status == 404
-                       else a.error)
+        # A 404 from mavlink2rest means this vehicle has never sent this
+        # message. That is a fact about the vehicle, not a network error, and
+        # the difference matters to the health panel. The mavlink2rest in
+        # BlueOS 1.4.6 says the same thing differently -- HTTP 200 with an
+        # empty body -- and on 15 October 2026 that was read as an unreadable
+        # reply, and so as a vehicle that was not answering.
+        never = a.status == 404 or (a.ok and not a.body.strip())
+        if never or not a.ok:
+            h.error = NEVER_SENT if never else a.error
             return Sample(name=name, message=self._last.get(name, {}),
                           fresh=False, mono=now_mono, wall=now_wall,
                           counter=h.counter, frequency=h.frequency,
-                          error=h.error)
+                          error=h.error, http_status=a.status)
         h.error = ""
 
         try:
@@ -255,7 +272,7 @@ class Mavlink2Rest:
             h.error = f"unreadable reply: {ex}"
             return Sample(name=name, message=self._last.get(name, {}),
                           fresh=False, mono=now_mono, wall=now_wall,
-                          error=h.error)
+                          error=h.error, http_status=a.status)
 
         msg = data.get("message", data) if isinstance(data, dict) else {}
         if not isinstance(msg, dict):
@@ -301,7 +318,7 @@ class Mavlink2Rest:
 
         return Sample(name=name, message=msg, fresh=fresh, counter=counter,
                       frequency=freq, vehicle_time=vtime, mono=now_mono,
-                      wall=now_wall, reset=reset)
+                      wall=now_wall, reset=reset, http_status=a.status)
 
     def read_many(self, names) -> dict[str, Sample]:
         return {n: self.read(n) for n in names}
@@ -320,7 +337,7 @@ class Mavlink2Rest:
         """
         out: dict = {"host": self.host, "port": self.port,
                      "system": self.system, "component": self.component}
-        a = _get(f"{self.base}/v1/mavlink", timeout=self.timeout)
+        a = self._fetch(f"{self.base}/v1/mavlink")
         out["root_ok"] = a.ok
         if not a.ok:
             out["error"] = a.error
@@ -332,7 +349,7 @@ class Mavlink2Rest:
         vehicles = data.get("vehicles", data)
         if isinstance(vehicles, dict):
             out["vehicles"] = sorted(vehicles)
-        b = _get(f"{self.base}/info", timeout=self.timeout)
+        b = self._fetch(f"{self.base}/info")
         if b.ok:
             try:
                 out["service"] = json.loads(b.body)
@@ -350,7 +367,7 @@ class Mavlink2Rest:
         all. The autopilot is the component whose HEARTBEAT declares an
         autopilot type that is not INVALID; 1/1 is preferred when several do.
         """
-        a = _get(f"{self.base}/v1/mavlink/vehicles", timeout=self.timeout)
+        a = self._fetch(f"{self.base}/v1/mavlink/vehicles")
         if not a.ok:
             return None
         try:
@@ -419,8 +436,7 @@ class Mavlink2Rest:
         in cannot drift from the dialect the way a hand-written JSON literal
         can -- which is how the DVL extension does it, and it is the right way.
         """
-        a = _get(f"{self.base}/helper/mavlink?name={urllib.parse.quote(name)}",
-                 timeout=self.timeout)
+        a = self._fetch(f"{self.base}/helper/mavlink?name={urllib.parse.quote(name)}")
         if not a.ok:
             return None
         try:
@@ -503,6 +519,10 @@ SLOW = (
     "DISTANCE_SENSOR",
     "GPS_GLOBAL_ORIGIN",
     "AUTOPILOT_VERSION",
+    # The vehicle's own words. mavlink2rest keeps only the newest, but ArduSub
+    # repeats a leak warning every 20 s while the sensor is wet, so one read
+    # in two seconds does not miss it.
+    "STATUSTEXT",
 )
 
 #: How long each message stays believable once it has stopped arriving. A
@@ -529,6 +549,7 @@ MAX_AGE = {
     # not aged out on the clock at all -- it is shown with its age instead.
     "GPS_GLOBAL_ORIGIN": 1e9,
     "AUTOPILOT_VERSION": 1e9,
+    "STATUSTEXT": 1e9,
 }
 
 

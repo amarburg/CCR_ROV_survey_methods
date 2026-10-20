@@ -49,7 +49,15 @@ from .. import diagnostics
 from . import ctk_tuning
 from . import gradients as G
 from . import theme as T
-from .widgets import Grip, OutputBox, Repaint, button, one_line_height
+from .widgets import (
+    Grip,
+    OutputBox,
+    Repaint,
+    Splitter,
+    button,
+    one_line_height,
+    rigid_width,
+)
 
 log = logging.getLogger(__name__)
 #: The shared output pane, copied into the diagnostics log.
@@ -209,6 +217,11 @@ class Lamp(ctk.CTkFrame):
 #: The log pane may be dragged open to at most this share of the window.
 LOG_MAX_SHARE = 0.6
 
+#: The least the divider in a pair of sections may make either one, in
+#: logical pixels, whatever is in it. Usually the floor is higher: no section
+#: is made narrower than its widest row of buttons (`widgets.rigid_width`).
+PAIR_MIN_PX = 320
+
 
 class TabStrip(ctk.CTkFrame):
     """The program's tabs, left to right, the open one outlined.
@@ -260,8 +273,10 @@ class TabStrip(ctk.CTkFrame):
 
     def add(self, name: str, key: str = "") -> ctk.CTkFrame:
         n = len(self._buttons) + 1
+        # Sized to the name: eight tabs at the default width did not fit
+        # a 1500-pixel window beside the recorder's badge.
         btn = ctk.CTkButton(
-            self, text=f"{n}  {name}", font=T.FONT_TAB, height=36,
+            self, text=f"{n}  {name}", font=T.FONT_TAB, height=36, width=40,
             corner_radius=8, fg_color="transparent", hover_color=T.SURFACE,
             text_color=T.TEXT_MUTED, border_width=0, border_color=T.ACCENT,
             command=lambda: self.select(name))
@@ -444,6 +459,8 @@ class Shell(ctk.CTk):
         self.configure(fg_color=T.BG)
 
         self.pages: dict[str, object] = {}
+        #: settings key -> the divider of a pair of sections built by `pair`.
+        self.splits: dict[str, Splitter] = {}
         #: tab name -> the pages built into it, each refreshed when it shows.
         self._tab_pages: dict[str, list] = {}
         self._queue: queue.Queue[tuple] = queue.Queue()
@@ -564,6 +581,11 @@ class Shell(ctk.CTk):
             text_color=T.TEXT, border_width=1, border_color=T.BORDER,
             bg_color=T.HEADER_BG, command=self.toggle_banner)
         self._fold_tip = "Hide the title banner"
+        #: Controls a program adds to the banner, left of Diagnostics, as
+        #: (top, under) pairs. Open, `under` sits beneath `top`, in the row the
+        #: lamps are in; folded, the two sit side by side in the one row. They
+        #: are there either way, which is the point of putting them here.
+        self.banner_extras: list[tuple] = list(self.build_banner_extras(self.controls))
         self._lay_out_controls()
 
         self._rule_photo = None
@@ -596,24 +618,46 @@ class Shell(ctk.CTk):
         fold button is in the same place either way, which is the one thing
         about this banner that has always been deliberate.
         """
+        extras = getattr(self, "banner_extras", [])
         for w in (self.versions_row, *self.lamps.values(), self.diag_btn,
-                  self.theme_switch, self.fold_btn):
+                  self.theme_switch, self.fold_btn,
+                  *(x for pair in extras for x in pair if x is not None)):
             w.grid_forget()
+        n = len(extras)
         if self.banner_open:
-            self.diag_btn.grid(row=0, column=0, padx=(0, 10), sticky="w")
-            self.theme_switch.grid(row=0, column=1, padx=(0, 10), sticky="w")
-            self.fold_btn.grid(row=0, column=2, rowspan=2)
-            self.lamps["vehicle"].grid(row=1, column=0, padx=(0, 10),
+            for i, (top, under) in enumerate(extras):
+                top.grid(row=0, column=i, padx=(0, 14), sticky="w")
+                if under is not None:
+                    under.grid(row=1, column=i, padx=(0, 14), pady=(6, 0),
+                               sticky="w")
+            self.diag_btn.grid(row=0, column=n, padx=(0, 10), sticky="w")
+            self.theme_switch.grid(row=0, column=n + 1, padx=(0, 10), sticky="w")
+            self.fold_btn.grid(row=0, column=n + 2, rowspan=2)
+            self.lamps["vehicle"].grid(row=1, column=n, padx=(0, 10),
                                        pady=(6, 0), sticky="w")
-            self.lamps["logging"].grid(row=1, column=1, padx=(0, 10),
+            self.lamps["logging"].grid(row=1, column=n + 1, padx=(0, 10),
                                        pady=(6, 0), sticky="w")
         else:
             self.versions_row.grid(row=0, column=0, padx=(0, 16), sticky="w")
             self.lamps["vehicle"].grid(row=0, column=1, padx=(0, 12))
             self.lamps["logging"].grid(row=0, column=2, padx=(0, 16))
-            self.diag_btn.grid(row=0, column=3, padx=(0, 10))
-            self.theme_switch.grid(row=0, column=4, padx=(0, 10))
-            self.fold_btn.grid(row=0, column=5)
+            col = 3
+            for top, under in extras:
+                top.grid(row=0, column=col, padx=(0, 8))
+                col += 1
+                if under is not None:
+                    under.grid(row=0, column=col, padx=(0, 14))
+                    col += 1
+            self.diag_btn.grid(row=0, column=col, padx=(0, 10))
+            self.theme_switch.grid(row=0, column=col + 1, padx=(0, 10))
+            self.fold_btn.grid(row=0, column=col + 2)
+
+    def build_banner_extras(self, parent) -> list[tuple]:
+        """A subclass's controls for the banner, as (top, under) pairs."""
+        return []
+
+    def banner_tick(self, connected: bool) -> None:
+        """Called once a second with the vehicle lamp's state."""
 
     def _font(self, font: tuple, scale: float):
         """A Tk font for a theme tuple at this display's scale, made once."""
@@ -694,6 +738,7 @@ class Shell(ctk.CTk):
                 {"on": Lamp.ON, "waiting": Lamp.WAITING}.get(
                     logging_state, Lamp.OFF))
             self._maybe_read_versions(connected)
+            self.banner_tick(connected)
         except Exception:
             diagnostics.log_exception("banner status", *sys.exc_info(),
                                       level=logging.WARNING)
@@ -913,6 +958,7 @@ class Shell(ctk.CTk):
                                     else "Light mode")
         for lamp in self.lamps.values():
             lamp.refresh_theme()
+        self.banner_tick(self.vehicle_status()[0])
         for lab in self.version_labels.values():
             lab.configure(text_color=T.TEXT_MUTED)
         self._load_logo()
@@ -957,21 +1003,55 @@ class Shell(ctk.CTk):
         body.grid_columnconfigure(0, weight=1)
         return body
 
-    @staticmethod
-    def pair(body, row: int, pady=(0, 12)) -> tuple[ctk.CTkFrame, ctk.CTkFrame]:
-        """Two equal columns, for sections small enough to sit side by side."""
+    def pair(self, body, row: int, pady=(0, 12), *, split_key: str = ""
+             ) -> tuple[ctk.CTkFrame, ctk.CTkFrame]:
+        """Two columns, for sections small enough to sit side by side.
+
+        They start equal, with a divider between them that can be dragged to
+        give either one more width and double-clicked to even them up again.
+        With `split_key`, where it was left is remembered under that key in
+        the settings file, and the divider is kept in `self.splits`.
+        """
         frame = ctk.CTkFrame(body, fg_color="transparent")
         frame.grid(row=row, column=0, sticky="ew", pady=pady)
-        frame.grid_columnconfigure((0, 1), weight=1, uniform="pair")
         frame.grid_rowconfigure(0, weight=1)
         left = ctk.CTkFrame(frame, fg_color="transparent")
         right = ctk.CTkFrame(frame, fg_color="transparent")
-        left.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
-        right.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
+        # No padding of their own: the divider between them is the gap.
+        left.grid(row=0, column=0, sticky="nsew")
+        right.grid(row=0, column=2, sticky="nsew")
         for f in (left, right):
             f.grid_columnconfigure(0, weight=1)
             f.grid_rowconfigure(0, weight=1)
+        split = Splitter(
+            frame, axis="x", uniform="pair", default=0.5,
+            fraction=self.split_share(split_key, 0.5) if split_key else 0.5,
+            minimum=(lambda: max(PAIR_MIN_PX, rigid_width(left)),
+                     lambda: max(PAIR_MIN_PX, rigid_width(right))),
+            on_release=self.split_saver(split_key) if split_key else None)
+        split.grid(row=0, column=1, sticky="ns")
+        split.apply()
+        if split_key:
+            self.splits[split_key] = split
         return left, right
+
+    def split_share(self, key: str, default: float) -> float:
+        """Where the divider saved under `key` was left last time, or
+        `default`. The divider itself checks that it is a usable share."""
+        settings = getattr(self, "settings", None) or {}
+        return settings.get(key) or default
+
+    def split_saver(self, key: str) -> Callable[[float], None]:
+        """What a divider calls when it is let go: remember where."""
+        def save(fraction: float) -> None:
+            settings = getattr(self, "settings", None)
+            if settings is None:
+                return
+            settings[key] = round(fraction, 4)
+            saver = getattr(self, "save_settings", None)
+            if callable(saver):
+                saver()
+        return save
 
     # ------------------------------------------------------------------
     #  the shared output pane

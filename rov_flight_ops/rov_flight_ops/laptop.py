@@ -221,8 +221,10 @@ COLUMNS: tuple[str, ...] = (
     # is the bridge's own, and the adapter underneath it is measured here.
     "nic_carrier", "nic_low_power", "phy_carrier", "phy_rx_bytes",
     "rov_arp_ok",
-    # and what the vehicle counted on its own side of the same link
-    "pi_eth_rx_bytes", "pi_eth_rx_errors", "tether_link_mbps",
+    # and what the vehicle counted on its own side of the same link,
+    # including how many times its port has lost carrier since boot
+    "pi_eth_rx_bytes", "pi_eth_rx_errors", "pi_eth_carrier",
+    "pi_eth_carrier_drops", "tether_link_mbps",
     # the tether modem pair itself, via williangalvani.plc-diagnostics --
     # separate from everything above because a link can measure perfectly
     # healthy on both hosts while the powerline pair between them is the
@@ -286,6 +288,7 @@ GROUPS: dict[str, tuple[str, ...]] = {
               "motherboard_temp_c", "pi_soc_temp_c", "system_uptime_s"),
     "Tether": ("nic_carrier", "phy_carrier", "nic_low_power",
                "phy_rx_bytes", "rov_arp_ok", "pi_eth_rx_bytes",
+               "pi_eth_carrier_drops",
                "tether_link_mbps", "tether_tx_mbps", "tether_rx_mbps",
                "tether_remote_seen"),
 }
@@ -294,38 +297,21 @@ GROUPS: dict[str, tuple[str, ...]] = {
 #: question the group answers rather than as a list of its contents -- the
 #: contents are on screen already.
 GROUP_NOTES: dict[str, str] = {
-    "CPU": "Is the processor keeping up, and is it being held back? "
-           "cpu_frequency_mhz falling while usage stays high is the signature "
-           "of a hot or power-limited laptop.",
-    "Memory": "Is anything running out of room? Committed memory climbing "
-              "toward the limit, or paging that will not settle, means the "
-              "machine is about to start swapping.",
-    "GPU": "Video decode is where Cockpit's stream lands. On integrated "
-           "graphics there is no temperature or power sensor to read, so "
-           "those two stay blank.",
-    "Storage": "The recorder and the camera both write here. Watch free space "
-               "on a 256 GB disk, and the queue length for a disk that has "
-               "stopped keeping up.",
-    "Network": "The tether. Round-trip time and loss are measured against the "
-               "vehicle itself; the throughput is whatever is flowing over "
-               "the interface that routes to it.",
-    "Cockpit": "The flight client, summed across its own processes and any "
-               "browser pointed at the vehicle. Blank when it is not running.",
-    "Power": "Battery, and the two temperatures there are. motherboard_temp_c "
-             "is the chassis zone -- the one that moves when the laptop sits "
-             "in the sun; pi_soc_temp_c is the vehicle's own.",
-    "Tether": "The link itself, from both ends. nic_ is the interface that "
-              "routes to the vehicle; phy_ is the physical adapter under it, "
-              "which on a bridged station is a different device with a "
-              "different carrier. phy_rx_bytes still climbing while the "
-              "bridge has gone quiet means the bridge stopped forwarding, not "
-              "that the tether dropped. pi_eth_rx_bytes is the vehicle's own "
-              "count of what arrived. tether_tx/rx_mbps and "
-              "tether_remote_seen are the Fathom-X pair's own negotiated "
-              "rate and whether it can hear its partner at all -- the one "
-              "thing that can fail while every column above still reads "
-              "healthy on both computers, and blank whenever the "
-              "plc-diagnostics extension is not installed.",
+    "CPU": "Frequency falling while usage stays high: a hot or power-limited "
+           "laptop.",
+    "Memory": "Committed memory nearing its limit, or paging that will not "
+              "settle: about to swap.",
+    "GPU": "Cockpit's video is decoded here.",
+    "Storage": "Free space, and a queue that keeps growing.",
+    "Network": "Ping and loss are to the vehicle; throughput is the tether "
+               "interface.",
+    "Cockpit": "Summed across Cockpit's processes. Blank when it is not "
+               "running.",
+    "Power": "Laptop battery and temperatures; pi_soc_temp_c is the "
+             "vehicle's Pi.",
+    "Tether": "nic_ is the routed interface, phy_ the adapter under the "
+              "bridge, pi_eth_ the Pi's own port, tether_ the Fathom-X pair "
+              "(blank without the plc-diagnostics extension).",
 }
 
 
@@ -427,6 +413,11 @@ class VehicleState:
     #: down -- which is the one thing the topside cannot work out alone.
     eth_rx_bytes: int | None = None
     eth_rx_errors: int | None = None
+    #: Whether the Pi's tether port has carrier, and how many times it has
+    #: lost it since boot. The count is the one that matters: a link that
+    #: flapped during an outage shows as a step in it on the first read after.
+    eth_carrier: bool | None = None
+    eth_carrier_drops: int | None = None
     #: The negotiated rate between the two Fathom-X boards, when the tether
     #: diagnostics extension is installed to report it. Two directions,
     #: because a mismatch between them (README: >~20 Mbps apart) is itself a
@@ -886,6 +877,8 @@ class Sampler:
         v = self.vehicle
         row["pi_eth_rx_bytes"] = v.eth_rx_bytes
         row["pi_eth_rx_errors"] = v.eth_rx_errors
+        row["pi_eth_carrier"] = _b(v.eth_carrier)
+        row["pi_eth_carrier_drops"] = v.eth_carrier_drops
         row["tether_tx_mbps"] = _f(v.tether_tx_mbps, 1)
         row["tether_rx_mbps"] = _f(v.tether_rx_mbps, 1)
         # The worse of the two, kept under the original column name: a single
@@ -996,6 +989,12 @@ class History:
     def latest(self) -> dict:
         with self._lock:
             return dict(self._rows[-1]) if self._rows else {}
+
+    def rows(self) -> list[dict]:
+        """Every row held, oldest first. The list is a copy; the rows are
+        never changed once added, so they are shared rather than copied."""
+        with self._lock:
+            return list(self._rows)
 
     def clear(self) -> None:
         with self._lock:
