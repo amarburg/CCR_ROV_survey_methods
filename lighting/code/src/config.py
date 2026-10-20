@@ -15,17 +15,19 @@ class Config:
     local_config.py should not be commited to git
     """
 
-    # The RX/TX silkscreen on the QtPy corresponds to UART1
-    # Use the default TX and RX pins for the UART
-    RS485_UART = 0
-    RS485_RTS_PIN = None
+    # Hardware UART pin assignments
+    # On the pico2, we use the default pinout for UART0:  
+    #    - Tx on GP0 (Pin1)
+    #    - RX on GP1 (Pin2)
+    RS485_UART = 0        
+    RS485_RTS_PIN = None    
+    RS485_EXPECT_LOCAL_ECHO = True
 
-    # Time to wait for responses from lights 
+    # Time to wait for responses from lights
     UART_TIMEOUT_MS = 500
 
-    # PWM input on the "A0" pin, which is connected to RP2004 pin 38
-    # Also PWM6B
-    PWM_INPUT_PIN = Pin.cpu.GPIO29
+    # PWM input from BlueROV servo output
+    PWM_INPUT_PIN = 16  # GP16
 
     # ArduSub servo PWM range (microseconds)
     PWM_MIN_US = 1100

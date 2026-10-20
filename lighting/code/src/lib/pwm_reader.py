@@ -1,3 +1,4 @@
+import time
 from machine import Pin
 
 class PWMReader:

@@ -69,7 +69,10 @@ class LightingController:
     def _init_lights(self):
         """Initialize SeaLite objects for each light."""
         for addr in Config.LIGHT_ADDRESSES:
-            light = Sealite(address=addr, max_level=100, expect_response=True)
+            light = Sealite(address=addr, 
+                            max_level=100, 
+                            expect_response=True, 
+                            local_echo=Config.RS485_EXPECT_LOCAL_ECHO)
             self._lights.append(light)
         print(f"Initialized {len(self._lights)} SeaLite lights (addresses {Config.LIGHT_ADDRESSES})")
 
@@ -118,11 +121,11 @@ class LightingController:
                     / (Config.PWM_MAX_US - Config.PWM_MIN_US))
 
 
-    def light_at(self,i):
+    def light_at(self,light_index : int):
         if light_index < 0 or light_index >= len(self._lights):
             return None
 
-        return lights[i]
+        return self.lights[i]
 
     def set_light_level(self, light, level):
         """
@@ -138,8 +141,6 @@ class LightingController:
         if isinstance(light, int):
             light = self.light_at(light)
 
-        level = 0
-
         try:
             return light.set_level(self._uart, level)
         except Exception as e:
@@ -150,7 +151,7 @@ class LightingController:
         """Set brightness level for all lights."""
         success = 0
 
-        print('DBG: LOUT       {level}')
+        print(f'DBG: LOUT       {level}')
 
         for light in self._lights:
             if self.set_light_level(light, level):
@@ -175,7 +176,7 @@ class LightingController:
         try:
             return light.read_level(self._uart)
         except Exception as e:
-            print(f"Error reading light {light_index}: {e}")
+            print(f"Error reading light {light._address}: {e}")
             return None
 
     def dump_all_lights_info(self):
@@ -190,8 +191,7 @@ class LightingController:
         for light in self._lights:
             try:
                 result = light.read_stat(self._uart)
-                for r in result:
-                    self.print_from_light(light,f'Stat:     {r}')    
+                self.print_from_light(light,f'Stat:     {result}')    
                 
                 self.print_from_light(light,f'Level:    {light.read_level(self._uart)}')
                 self.print_from_light(light,f'Temp:     {light.read_temperature(self._uart)}')
@@ -249,7 +249,7 @@ class LightingController:
             while True:
                 signal_age = self._pwm_reader.signal_age_ms
                 signal_lost = (signal_age < 0 or
-                               signal_age > self.SIGNAL_TIMEOUT_MS)
+                               signal_age > Config.SIGNAL_TIMEOUT_MS)
 
                 if signal_lost:
                     pw_samples = []

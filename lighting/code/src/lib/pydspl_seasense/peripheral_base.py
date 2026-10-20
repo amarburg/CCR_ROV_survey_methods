@@ -80,12 +80,16 @@ class PeripheralBase:
         fp.write(seasense.build_packet(self.address, command, "?").encode("ascii"))
         fp.flush()
 
-        return self.readline(fp)
-
-    def readline(self,fp):
-
         if self._local_echo:
             result = fp.read_until()
+            if len(result) == 0:
+                raise DSPLTimeoutError
+
+        # STAT is the only command which returns a two-line result
+        if command ==self.DSPL_VERB_STAT:
+            result = fp.read_until()
+            if len(result) == 0:
+                raise DSPLTimeoutError
 
         result = fp.read_until()
 
@@ -157,7 +161,7 @@ class PeripheralBase:
 
         \todo{}:  Parse info string to extract meaning?  Only if we need to...
         """
-        result = ( self.do_query(fp, self.DSPL_VERB_STAT),  self.readline(fp))
+        result = self.do_query(fp, self.DSPL_VERB_STAT)
 
         return result
 
